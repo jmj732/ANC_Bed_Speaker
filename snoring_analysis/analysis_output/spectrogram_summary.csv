@@ -1,0 +1,2 @@
+num_frames,num_freq_bins,dominant_freq_mean_hz,dominant_freq_std_hz,mean_db_all_band_avg,mean_db_80_300hz_avg
+754,1025,433.90459217506634,407.1772148792441,-24.010299682617188,2.567002296447754

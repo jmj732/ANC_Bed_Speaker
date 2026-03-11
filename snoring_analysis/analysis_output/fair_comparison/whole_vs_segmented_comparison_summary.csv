@@ -1,0 +1,2 @@
+file_count,total_segments,mean_segment_count,median_segment_count,mean_segment_coverage_ratio,median_segment_coverage_ratio,mean_delta_snore_index,median_delta_snore_index,mean_delta_dominant_frequency_hz,median_delta_dominant_frequency_hz,type_changed_count,type_changed_ratio
+29,927,31.96551724137931,12.0,0.4716141254307617,0.385519511048425,0.0020635540930640777,0.0007331362776308581,-9.47401018049431,-0.269204115501509,0,0.0

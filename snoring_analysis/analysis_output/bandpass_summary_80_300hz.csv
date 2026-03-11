@@ -1,0 +1,2 @@
+lowcut_hz,highcut_hz,original_energy,filtered_energy,energy_ratio_filtered_over_original,original_rms,filtered_rms,rms_ratio_filtered_over_original
+80,300,5253.48291015625,3562.2738287770653,0.6780785032897567,0.11667425185441971,0.09607602070065098,0.8234552111851536

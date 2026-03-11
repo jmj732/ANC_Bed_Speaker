@@ -1,0 +1,4 @@
+raw_type,broadband_high_freq,high_low_freq,mid
+broadband_high_freq,8,0,0
+high_low_freq,0,12,0
+mid,0,0,9

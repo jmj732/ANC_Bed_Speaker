@@ -1,0 +1,2 @@
+filename,sample_rate_hz,duration_sec,num_samples,amplitude_min,amplitude_max,amplitude_mean,amplitude_std,rms_energy
+mollyroselee-a-person-snoring-468533.mp3,48000,8.04,385920,-0.6628267765045166,0.5754255056381226,0.000791808997746557,0.11667156964540482,0.11667425185441971
