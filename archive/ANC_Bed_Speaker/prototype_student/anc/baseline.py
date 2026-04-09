@@ -31,6 +31,8 @@ def record_baseline(
     device: int | str | tuple[int | None, int | None] | None,
     log_path: str | Path,
     duration_s: float,
+    *,
+    latency: str | float = "low",
 ) -> None:
     """Record baseline (ANC off) for comparison.
     KR: 비교를 위한 기준 신호(ANC off) 기록.
@@ -40,6 +42,7 @@ def record_baseline(
         device: Audio device identifier
         log_path: Path to save results
         duration_s: Recording duration in seconds (None for indefinite)
+        latency: Stream latency hint ('low', 'high', or seconds)
     """
     # Validate inputs
     cfg.validate()
@@ -69,38 +72,50 @@ def record_baseline(
             status_count += 1
             logger.warning("Stream status: %s (count: %d)", status, status_count)
 
-        # Validate input channels
-        if indata.shape[1] < MIN_INPUT_CHANNELS:
-            logger.error(
-                "Insufficient input channels: got %d, need %d",
-                indata.shape[1],
-                MIN_INPUT_CHANNELS,
-            )
-            outdata[:] = 0.0
-            return
+        # Silence output
+        outdata[:] = 0.0
 
-        # No output; just capture mic signals
-        # 출력 없이 마이크 신호만 캡처
-        mic: Float32Array = indata[:, :MIN_INPUT_CHANNELS].astype(np.float32, copy=False)
-        outdata[:] = np.zeros((frames, OUTPUT_CHANNELS), dtype=np.float32)
+        n_ch = indata.shape[1]
+        mic_in = indata[:, :min(n_ch, MIN_INPUT_CHANNELS)].astype(np.float32, copy=False)
+        x_raw = mic_in[:, 0]
 
-        x_raw = mic[:, 0]
+        # 마이크 1개: ch0을 ref+error 둘 다 사용
+        err_sig = x_raw
+        mic_pair = np.column_stack([x_raw, x_raw])
 
         # Log with memory limit
         if total_samples < max_samples:
-            mic_log.append(mic.copy())
+            mic_log.append(mic_pair.copy())
             ref_log.append(x_raw.copy())
-            err_log.append(mic[:, 1].copy())
+            err_log.append(err_sig.copy())
             total_samples += frames
 
-    logger.info("Starting baseline recording (duration=%.1fs)", duration_s or -1)
+    # Detect available input channels for the device
+    try:
+        dev_info = sd.query_devices(device if not isinstance(device, tuple) else device[0])
+        available_in = int(dev_info["max_input_channels"])
+    except Exception:
+        available_in = MIN_INPUT_CHANNELS
+    in_channels = min(available_in, MIN_INPUT_CHANNELS)
+    if in_channels < MIN_INPUT_CHANNELS:
+        logger.warning(
+            "Mono test mode: device has %d input channel(s), need %d. "
+            "Error mic will mirror reference mic.",
+            in_channels, MIN_INPUT_CHANNELS,
+        )
+
+    logger.info(
+        "Starting baseline recording (duration=%.1fs, block_size=%d, latency=%s, in_ch=%d)",
+        duration_s or -1, cfg.block_size, latency, in_channels,
+    )
 
     with sd.Stream(
         samplerate=cfg.sample_rate,
         blocksize=cfg.block_size,
         dtype="float32",
-        channels=(MIN_INPUT_CHANNELS, OUTPUT_CHANNELS),
+        channels=(in_channels, OUTPUT_CHANNELS),
         device=device,
+        latency=latency,
         callback=callback,
     ):
         if duration_s and duration_s > 0:

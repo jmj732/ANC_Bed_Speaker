@@ -1,40 +1,32 @@
-# Python
+# Build outputs
+build/
+*.o
+
+# Runtime artifacts
+runtime/*.bin
+runtime/*.npz
+runtime/*.log
+runtime/logs/
+runtime/backups/
+
+# Python caches from helper scripts
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-*.egg
-*.egg-info/
-dist/
-build/
-.eggs/
-*.whl
 
-# Virtual environment
-.venv/
-venv/
-env/
-ENV/
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-
-# IDE
-.idea/
-.vscode/
+# Editor / OS noise
+.DS_Store
+Thumbs.db
 *.swp
 *.swo
 
-# OS
-.DS_Store
-Thumbs.db
+# Archived prototype artifacts
+archive/ANC_Bed_Speaker/prototype_student/.venv/
+archive/ANC_Bed_Speaker/prototype_student/*.npz
+archive/ANC_Bed_Speaker/prototype_student/*.egg-info/
+archive/ANC_Bed_Speaker/prototype_student/__pycache__/
+archive/ANC_Bed_Speaker/prototype_student/anc/__pycache__/
+archive/ANC_Bed_Speaker/prototype_student/tools/__pycache__/
+archive/ANC_Bed_Speaker/prototype_student/tests/__pycache__/
 
-# Claude/Serena session files
-.claude/
-.serena/
-
-# Logs
-*.log
+# Local backup of the temporary repo metadata created during reorg
+.git.codex-local/

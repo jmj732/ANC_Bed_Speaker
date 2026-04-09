@@ -1,0 +1,13 @@
+[Unit]
+Description=Keep housekeeping IRQs off CPU3 for ANC
+DefaultDependencies=no
+After=local-fs.target
+Before=sound.target anc-rt.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/anc-irq-affinity.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

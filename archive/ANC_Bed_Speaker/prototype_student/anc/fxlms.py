@@ -17,7 +17,7 @@ from numpy.typing import NDArray
 from .dsp import DspConfig, FIRFilter, RingBuffer, build_bandpass_taps
 
 # Constants
-MIN_INPUT_CHANNELS: int = 2  # Minimum required input channels (1 ref + 1 error)
+MIN_INPUT_CHANNELS: int = 1  # Feedback ANC: 마이크 1개
 OUTPUT_CHANNELS: int = 2  # Stereo output
 
 # Type aliases
@@ -45,6 +45,7 @@ class FxLMSController:
         self.w: Float32Array = np.zeros(cfg.w_len, dtype=np.float32)
         self.x_hist = RingBuffer(cfg.w_len, dtype=np.float32)
         self.xf_hist = RingBuffer(cfg.w_len, dtype=np.float32)
+        self.y_hist = RingBuffer(cfg.s_len, dtype=np.float32)  # feedback ANC: 출력 이력
         self.s_hat: Float32Array = s_hat.astype(np.float32, copy=False)
         self.bandpass = FIRFilter(build_bandpass_taps(cfg))
 
@@ -76,68 +77,53 @@ class FxLMSController:
             self._status_count += 1
             logger.warning("Stream status: %s (count: %d)", status, self._status_count)
 
-        # Validate input channels
-        if indata.shape[1] < MIN_INPUT_CHANNELS:
-            logger.error(
-                "Insufficient input channels: got %d, need %d",
-                indata.shape[1],
-                MIN_INPUT_CHANNELS,
-            )
-            outdata[:] = 0.0
-            return
-
-        # Mic routing: one reference mic + one error mic
-        # 마이크 라우팅: 레퍼런스 1채널 + 에러 1채널
-        mic: Float32Array = indata[:, :MIN_INPUT_CHANNELS].astype(np.float32, copy=False)
-        x_raw = mic[:, 0]
-
-        # Bandpass reference to target noise band
-        # 타깃 노이즈 대역만 통과하도록 레퍼런스 대역통과
-        x_bp = self.bandpass.process(x_raw)
-        err = mic[:, 1]
+        # Feedback ANC: 마이크 1개 (CH0)
+        mic_ch0: Float32Array = indata[:, 0].astype(np.float32, copy=False)
 
         y_out: Float32Array = np.zeros(frames, dtype=np.float32)
+        e_hat_block: Float32Array = np.zeros(frames, dtype=np.float32)
 
         for i in range(frames):
-            # Update reference history and compute control output
-            # 레퍼런스 히스토리 갱신 및 제어 출력 계산
-            self.x_hist.push(x_bp[i])
+            # 과거 출력으로 스피커→마이크 기여 예측
+            y_seg1, y_seg2, y_seg1_len = self.y_hist.segments()
+            predicted = (np.dot(self.s_hat[:y_seg1_len], y_seg1) +
+                         np.dot(self.s_hat[y_seg1_len:], y_seg2))
+
+            # 추정 소음 = 마이크 - 예측된 스피커 기여
+            e_hat = mic_ch0[i] - predicted
+            e_hat_block[i] = e_hat
+
+            # 추정 소음을 레퍼런스로 사용
+            self.x_hist.push(e_hat)
             seg1, seg2, seg1_len = self.x_hist.segments()
 
             y = np.dot(self.w[:seg1_len], seg1) + np.dot(self.w[seg1_len:], seg2)
-
-            # Soft limiter to avoid clipping
-            # 클리핑 방지용 소프트 리미터
             y = float(np.tanh(self.cfg.limiter_drive * y))
             y_out[i] = y
 
-            # Filter reference through secondary path model
-            # 2차 경로 모델로 레퍼런스를 필터링
-            xf_sample = np.dot(self.s_hat[:seg1_len], seg1) + np.dot(
-                self.s_hat[seg1_len:], seg2
-            )
+            # 출력 이력 갱신
+            self.y_hist.push(y)
+
+            # 2차 경로 필터링된 레퍼런스
+            xf_sample = (np.dot(self.s_hat[:seg1_len], seg1) +
+                         np.dot(self.s_hat[seg1_len:], seg2))
             self.xf_hist.push(xf_sample)
 
-            # Adaptive update (NLMS optional)
-            # 적응 필터 업데이트(NLMS 선택)
+            # 적응 필터 업데이트
             xf_seg1, xf_seg2, xf_seg1_len = self.xf_hist.segments()
             norm = self.cfg.eps + self.xf_hist.sumsq()
-            gain = self.cfg.mu * err[i]
+            gain = self.cfg.mu * e_hat
             if self.use_nlms:
-                gain = gain / norm
-
+                gain /= norm
             self.w[:xf_seg1_len] -= gain * xf_seg1
             self.w[xf_seg1_len:] -= gain * xf_seg2
 
-        # Output to both channels (stereo)
         outdata[:] = np.column_stack([y_out, y_out])
 
-        # Log with memory limit check
-        # 메모리 제한 확인 후 로깅
         if self._total_samples < self._max_log_samples:
-            self.mic_log.append(mic.copy())
-            self.ref_log.append(x_bp.copy())
-            self.err_log.append(err.copy())
+            self.mic_log.append(mic_ch0.copy())
+            self.ref_log.append(e_hat_block.copy())
+            self.err_log.append(e_hat_block.copy())
             self.y_log.append(y_out.copy())
             self._total_samples += frames
 
@@ -191,7 +177,7 @@ def run_fx_lms(
         samplerate=cfg.sample_rate,
         blocksize=cfg.block_size,
         dtype="float32",
-        channels=(MIN_INPUT_CHANNELS, OUTPUT_CHANNELS),
+        channels=(1, OUTPUT_CHANNELS),
         device=device,
         callback=controller.callback,
     ):

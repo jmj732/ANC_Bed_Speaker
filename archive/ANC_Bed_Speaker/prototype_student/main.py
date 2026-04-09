@@ -147,6 +147,17 @@ Examples:
         action="store_true",
         help="Enable verbose logging.",
     )
+    parser.add_argument(
+        "--block-size",
+        type=int,
+        default=128,
+        help="Audio block size in samples (default: 128, safer start).",
+    )
+    parser.add_argument(
+        "--latency",
+        default="low",
+        help="Stream latency hint: 'low', 'high', or float seconds (default: 'low').",
+    )
 
     sub = parser.add_subparsers(dest="command")
 
@@ -274,7 +285,13 @@ def main() -> int:
 
     try:
         device = _resolve_device(args)
-        cfg = DspConfig()
+        cfg = DspConfig(block_size=args.block_size)
+
+        # Parse latency hint
+        try:
+            latency = float(args.latency)
+        except ValueError:
+            latency = args.latency  # 'low' or 'high'
 
         if args.command == "learn-secondary":
             validate_duration(args.duration, "duration")
@@ -294,7 +311,7 @@ def main() -> int:
             log_path = validate_path(args.log)
 
             logger.info("Starting baseline recording...")
-            record_baseline(cfg, device, log_path, args.duration)
+            record_baseline(cfg, device, log_path, args.duration, latency=latency)
             logger.info("Baseline saved to %s", log_path)
             return 0
 

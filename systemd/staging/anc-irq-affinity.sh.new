@@ -1,0 +1,54 @@
+#!/bin/bash
+set -eu
+
+HOUSEKEEPING_CPUS="${HOUSEKEEPING_CPUS:-0-2}"
+HOUSEKEEPING_MASK="${HOUSEKEEPING_MASK:-7}"
+
+write_value() {
+    local path="$1"
+    local value="$2"
+    if [ -w "$path" ]; then
+        printf '%s' "$value" > "$path" || true
+    fi
+}
+
+set_irq_affinity() {
+    local irq_dir="$1"
+    write_value "$irq_dir/smp_affinity_list" "$HOUSEKEEPING_CPUS"
+}
+
+write_value /proc/irq/default_smp_affinity "$HOUSEKEEPING_MASK"
+
+for path in /sys/devices/virtual/workqueue/*/cpumask; do
+    [ -e "$path" ] || continue
+    write_value "$path" "$HOUSEKEEPING_MASK"
+done
+
+for irq_dir in /proc/irq/[0-9]*; do
+    [ -d "$irq_dir" ] || continue
+    current="$(cat "$irq_dir/smp_affinity_list" 2>/dev/null || true)"
+    case "$current" in
+        3|0-3|0,1,2,3)
+            set_irq_affinity "$irq_dir"
+            ;;
+    esac
+done
+
+awk '
+    /(nvme|dw_axi_dmac_platform|xhci-hcd|mmc|sdhci|PCIe PME|aerdrv)/ {
+        gsub(":", "", $1)
+        print $1
+    }
+' /proc/interrupts | while read -r irq; do
+    [ -n "$irq" ] || continue
+    set_irq_affinity "/proc/irq/$irq"
+done
+
+for irq_dir in /proc/irq/[0-9]*; do
+    [ -d "$irq_dir" ] || continue
+    actions="$irq_dir/actions"
+    [ -r "$actions" ] || continue
+    if grep -Eq 'dw_axi_dmac_platform|xhci-hcd|mmc|sdhci|pcie|nvme' "$actions"; then
+        set_irq_affinity "$irq_dir"
+    fi
+done

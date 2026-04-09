@@ -16,9 +16,9 @@ from numpy.typing import NDArray
 from .dsp import DspConfig, RingBuffer, db_to_linear
 
 # Constants
-MIN_INPUT_CHANNELS: int = 2  # 1 ref + 1 error
+MIN_INPUT_CHANNELS: int = 1  # 마이크 1개
 OUTPUT_CHANNELS: int = 2
-ERROR_MIC_CHANNEL: int = 1
+ERROR_MIC_CHANNEL: int = 0
 
 # Type aliases
 Float32Array = NDArray[np.float32]
@@ -78,16 +78,6 @@ def estimate_secondary_path(
             status_count += 1
             logger.warning("Stream status: %s (count: %d)", status, status_count)
 
-        # Validate input channels
-        if indata.shape[1] < MIN_INPUT_CHANNELS:
-            logger.error(
-                "Insufficient input channels: got %d, need %d",
-                indata.shape[1],
-                MIN_INPUT_CHANNELS,
-            )
-            outdata[:] = 0.0
-            return
-
         # Excite the secondary path with white noise
         # 백색잡음으로 2차 경로를 여기(Excitation)
         noise: Float32Array = rng.standard_normal(frames).astype(np.float32) * noise_amp
@@ -128,7 +118,7 @@ def estimate_secondary_path(
         samplerate=cfg.sample_rate,
         blocksize=cfg.block_size,
         dtype="float32",
-        channels=(MIN_INPUT_CHANNELS, OUTPUT_CHANNELS),
+        channels=(1, OUTPUT_CHANNELS),
         device=device,
         callback=callback,
     ):

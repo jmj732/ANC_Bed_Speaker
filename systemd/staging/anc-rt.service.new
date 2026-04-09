@@ -1,0 +1,28 @@
+[Unit]
+Description=Realtime ANC service pinned to CPU3
+After=sound.target cpu-performance.service anc-irq-affinity.service
+Requires=cpu-performance.service anc-irq-affinity.service
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin
+ExecStartPre=/usr/bin/amixer -c sndrpihifiberry cset "name=Analogue Playback Boost Volume" "1,1"
+ExecStart=/home/admin/anc run --period=64 --buffer-mult=12 --start-fill=3 --xrun-fill=3 --mb-bands=1 --adapt-delay-ms=400
+Restart=always
+RestartSec=0.2
+CPUAffinity=3
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=70
+IOSchedulingClass=realtime
+IOSchedulingPriority=0
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+LimitNICE=-20
+Nice=-20
+OOMScoreAdjust=-1000
+TasksMax=16
+SupplementaryGroups=audio
+
+[Install]
+WantedBy=multi-user.target
