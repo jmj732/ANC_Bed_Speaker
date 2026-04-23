@@ -32,6 +32,15 @@ static void rt_prepare_memory(int lock_future)
     else
         fprintf(stderr, "RT: SCHED_FIFO priority %d\n", sp.sched_priority);
 
+    /* Pin to isolated CPU 3 */
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(3, &cpuset);
+    if (sched_setaffinity(0, sizeof(cpuset), &cpuset) < 0)
+        fprintf(stderr, "WARNING: sched_setaffinity CPU3 failed: %s\n", strerror(errno));
+    else
+        fprintf(stderr, "RT: pinned to CPU 3\n");
+
     /* Prevent CPU from entering deep C-states between periods.
      * /dev/cpu_dma_latency=0 tells the PM layer to stay in C0.
      * The fd must remain open for the lifetime of the process. */

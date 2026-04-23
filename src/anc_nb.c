@@ -5,10 +5,24 @@
 void run_nb_anc(alsa_ctx_t *a, const float *sec_path, int sec_len,
                 logger_t *l, int n_harm, float nb_mu, float nb_leak,
                 int start_fill_periods, int xrun_fill_periods,
-                const anc_runtime_cfg_t *cfg)
+                const anc_runtime_cfg_t *cfg, int record_secs)
 {
     snd_pcm_uframes_t period = a->period;
     double period_budget_ms = (double)period * 1000.0 / (double)a->rate;
+
+    /* Recording setup */
+    long rec_total = (record_secs > 0) ? (long)record_secs * (long)a->rate : 0;
+    long rec_count = 0;
+    FILE *f_ref = NULL, *f_err = NULL;
+    if (rec_total > 0) {
+        f_ref = fopen("/tmp/rec_ref.raw", "wb");
+        f_err = fopen("/tmp/rec_err.raw", "wb");
+        if (!f_ref || !f_err)
+            fprintf(stderr, "WARNING: cannot open recording files\n");
+        else
+            fprintf(stderr, "REC: recording %d sec -> /tmp/rec_ref.raw, /tmp/rec_err.raw\n",
+                    record_secs);
+    }
 
     int16_t *in_buf  = (int16_t *)calloc(period * CHANNELS, sizeof(int16_t));
     int16_t *out_buf = (int16_t *)calloc(period * CHANNELS, sizeof(int16_t));
@@ -23,6 +37,12 @@ void run_nb_anc(alsa_ctx_t *a, const float *sec_path, int sec_len,
     }
 
     double t_start = get_time();
+
+    /* Test tone on L channel (150 Hz, amplitude 0.3) */
+    float tone_hz    = 150.0f;
+    float tone_amp   = 0.3f;
+    float tone_phase = 0.0f;
+    float tone_phase_inc = 2.0f * (float)M_PI * tone_hz / (float)a->rate;
 
     int    bl_done = 0, bl_sec = 0;
     double bl_err_sum = 0;
@@ -62,6 +82,21 @@ void run_nb_anc(alsa_ctx_t *a, const float *sec_path, int sec_len,
             continue;
         }
 
+        /* Record ref and error mic samples */
+        if (f_ref && f_err && rec_count < rec_total) {
+            for (int i = 0; i < (int)period && rec_count < rec_total; i++, rec_count++) {
+                int16_t s_ref = in_buf[i * 2 + REF_CH];
+                int16_t s_err = in_buf[i * 2 + ERR_CH];
+                fwrite(&s_ref, sizeof(int16_t), 1, f_ref);
+                fwrite(&s_err, sizeof(int16_t), 1, f_err);
+            }
+            if (rec_count >= rec_total) {
+                fclose(f_ref); f_ref = NULL;
+                fclose(f_err); f_err = NULL;
+                fprintf(stderr, "REC: done. saved %ld samples each\n", rec_count);
+            }
+        }
+
         for (int i = 0; i < (int)period; i++)
             nb_f0_buf_sample(&nb, to_f(in_buf[i * 2 + REF_CH]));
 
@@ -79,8 +114,12 @@ void run_nb_anc(alsa_ctx_t *a, const float *sec_path, int sec_len,
             if (anti >  cfg->output_limit) { anti =  cfg->output_limit; clipped = 1; }
             if (anti < -cfg->output_limit) { anti = -cfg->output_limit; clipped = 1; }
 
-            out_buf[i * 2 + 0] = clip16(anti);
-            out_buf[i * 2 + 1] = clip16(anti);
+            float tone = tone_amp * sinf(tone_phase);
+            tone_phase += tone_phase_inc;
+            if (tone_phase > (float)M_PI) tone_phase -= 2.0f * (float)M_PI;
+
+            out_buf[i * 2 + 0] = clip16(tone);   /* L: 150Hz test tone */
+            out_buf[i * 2 + 1] = clip16(anti);   /* R: ANC anti-noise  */
 
             logger_update(l, e, anti, e, clipped);
 
@@ -204,4 +243,6 @@ void run_nb_anc(alsa_ctx_t *a, const float *sec_path, int sec_len,
 
     free(in_buf);
     free(out_buf);
+    if (f_ref) fclose(f_ref);
+    if (f_err) fclose(f_err);
 }

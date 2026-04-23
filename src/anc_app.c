@@ -35,6 +35,7 @@ typedef struct {
     int   nb_harms;
     float nb_mu;
     float nb_leak;
+    int   record_secs;
 } tune_cfg_t;
 
 static void tune_cfg_init(tune_cfg_t *cfg)
@@ -59,6 +60,7 @@ static void tune_cfg_init(tune_cfg_t *cfg)
     cfg->nb_harms = 4;
     cfg->nb_mu    = NB_MU_DEFAULT;
     cfg->nb_leak  = NB_LEAK_DEFAULT;
+    cfg->record_secs = 0;
 }
 
 static void usage(const char *prog)
@@ -134,6 +136,8 @@ int anc_app_main(int argc, char **argv, const anc_runtime_cfg_t *rt_cfg)
             cfg.nb_mu = strtof(arg + 8, NULL);
         } else if (strncmp(arg, "--nb-leak=", 10) == 0) {
             cfg.nb_leak = strtof(arg + 10, NULL);
+        } else if (strncmp(arg, "--record-secs=", 14) == 0) {
+            cfg.record_secs = atoi(arg + 14);
         } else {
             usage(argv[0]);
             return 1;
@@ -301,7 +305,7 @@ int anc_app_main(int argc, char **argv, const anc_runtime_cfg_t *rt_cfg)
         run_nb_anc(&alsa, tmp.s, tmp.s_len, &log,
                     cfg.nb_harms, cfg.nb_mu, cfg.nb_leak,
                     cfg.start_fill_periods, cfg.xrun_fill_periods,
-                    rt_cfg);
+                    rt_cfg, cfg.record_secs);
         fxlms_free(&tmp);
     }
     else {

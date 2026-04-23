@@ -212,10 +212,10 @@
 #define NB_F0_BUF_LEN    2048
 #endif
 #ifndef NB_F0_MIN_HZ
-#define NB_F0_MIN_HZ     60.0f
+#define NB_F0_MIN_HZ     130.0f
 #endif
 #ifndef NB_F0_MAX_HZ
-#define NB_F0_MAX_HZ     120.0f
+#define NB_F0_MAX_HZ     200.0f
 #endif
 #ifndef NB_F0_CONF_THR
 #define NB_F0_CONF_THR    0.75f
