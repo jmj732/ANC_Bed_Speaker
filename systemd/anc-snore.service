@@ -1,0 +1,33 @@
+[Unit]
+Description=Snore-tuned realtime ANC service pinned to CPU3
+After=sound.target cpu-performance.service anc-irq-affinity.service
+Requires=cpu-performance.service anc-irq-affinity.service
+Conflicts=anc-rt.service
+
+[Service]
+Type=simple
+User=admin
+WorkingDirectory=/home/admin/anc-rt/runtime
+# DSP: Low-latency IIR (option 1) saves ~0.375ms vs default FIR (option 0)
+ExecStartPre=/usr/bin/amixer -c sndrpihifiberry cset numid=6 1
+# Auto Mute off: prevents mute transients during quiet passages
+ExecStartPre=/usr/bin/amixer -c sndrpihifiberry cset numid=11 off,off
+ExecStartPre=/usr/bin/amixer -c sndrpihifiberry cset numid=10 off
+ExecStart=/home/admin/anc-rt/build/snore_anc nb --period=32 --buffer-mult=4 --start-fill=1 --xrun-fill=2 --n-harm=4 --nb-mu=0.0005 --nb-leak=0.9999
+Restart=always
+RestartSec=0.2
+CPUAffinity=3
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=70
+IOSchedulingClass=realtime
+IOSchedulingPriority=0
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+LimitNICE=-20
+Nice=-20
+OOMScoreAdjust=-1000
+TasksMax=16
+SupplementaryGroups=audio
+
+[Install]
+WantedBy=multi-user.target
