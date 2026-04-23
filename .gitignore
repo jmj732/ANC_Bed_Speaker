@@ -6,8 +6,16 @@ build/
 runtime/*.bin
 runtime/*.npz
 runtime/*.log
+runtime/*.bak-*
 runtime/logs/
 runtime/backups/
+
+# Root-level sec_path dumps
+sec_path.bin
+sec_path.bin.*
+
+# Analysis outputs
+graphify-out/
 
 # Python caches from helper scripts
 __pycache__/
