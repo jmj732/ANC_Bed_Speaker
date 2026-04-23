@@ -2,12 +2,16 @@
 Description=Realtime ANC service pinned to CPU3
 After=sound.target cpu-performance.service anc-irq-affinity.service
 Requires=cpu-performance.service anc-irq-affinity.service
+Conflicts=anc-snore.service
 
 [Service]
 Type=simple
 User=admin
 WorkingDirectory=/home/admin/anc-rt/runtime
-ExecStart=/home/admin/anc-rt/build/anc run
+ExecStartPre=/usr/bin/amixer -c sndrpihifiberry cset numid=6 1
+ExecStartPre=/usr/bin/amixer -c sndrpihifiberry cset numid=11 off,off
+ExecStartPre=/usr/bin/amixer -c sndrpihifiberry cset numid=10 off
+ExecStart=/home/admin/anc-rt/build/anc run --period=32 --buffer-mult=4 --start-fill=1 --xrun-fill=2 --mb-bands=1 --band-lo=80 --band-hi=300 --adapt-delay-ms=400
 Restart=always
 RestartSec=0.2
 CPUAffinity=3

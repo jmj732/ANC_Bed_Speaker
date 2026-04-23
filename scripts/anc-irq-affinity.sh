@@ -28,3 +28,10 @@ for irq_dir in /proc/irq/[0-9]*; do
         set_affinity "$irq_dir/smp_affinity_list"
     fi
 done
+
+# Raise DMA IRQ thread priority above ANC (prio 70) so DMA completion
+# is processed immediately without being preempted by the ANC thread.
+for thread in $(ps -eLo pid,comm | awk '/irq\/[0-9]+-dw_axi_dmac/{print $1}'); do
+    chrt -f -p 80 "$thread" 2>/dev/null && \
+        echo "irq-affinity: dw_axi_dmac thread $thread → SCHED_FIFO prio 80" || true
+done
