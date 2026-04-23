@@ -198,8 +198,8 @@ static void run_measurement(alsa_ctx_t *a, int s_len, float noise_amp,
         for (int i = 0; i < (int)period; i++) {
             float u = white_noise(&rng_seed) * noise_amp;
             u = output_safety_step(&out_safety, u);
-            out_buf[i * 2 + 0] = clip16(u);
-            out_buf[i * 2 + 1] = clip16(u);
+            out_buf[i * 2 + 0] = 0;           /* L: silent during measure */
+            out_buf[i * 2 + 1] = clip16(u);   /* R: ANC speaker white noise */
         }
         double after_gen = get_time();
 
@@ -225,7 +225,7 @@ static void run_measurement(alsa_ctx_t *a, int s_len, float noise_amp,
 
         /* Per-sample LMS system identification */
         for (int i = 0; i < (int)period; i++) {
-            float u_sample   = to_f(out_buf[i * 2 + 0]);
+            float u_sample   = to_f(out_buf[i * 2 + 1]);  /* R: ANC speaker */
             float d_measured = to_f(in_buf[i * 2 + ERR_CH]);
 
             cbuf_push(&u_buf, u_sample);

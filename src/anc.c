@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 /*
  * anc.c — FxLMS Active Noise Cancellation (single-file prototype)
  *
@@ -30,10 +31,10 @@
 
 /* ===== Configuration ===== */
 #ifndef DEVICE
-#define DEVICE          "hw:0,0"
+#define DEVICE          "hw:2,0"
 #endif
 #ifndef SAMPLE_RATE
-#define SAMPLE_RATE     48000
+#define SAMPLE_RATE     96000
 #endif
 #ifndef CHANNELS
 #define CHANNELS        2
@@ -205,16 +206,16 @@
 #define NB_F0_BUF_LEN    2048
 #endif
 #ifndef NB_F0_MIN_HZ
-#define NB_F0_MIN_HZ     60.0f
+#define NB_F0_MIN_HZ     130.0f
 #endif
 #ifndef NB_F0_MAX_HZ
-#define NB_F0_MAX_HZ     120.0f
+#define NB_F0_MAX_HZ     200.0f
 #endif
 #ifndef NB_F0_CONF_THR
 #define NB_F0_CONF_THR    0.75f
 #endif
 #ifndef NB_F0_UPDATE_SAMPLES
-#define NB_F0_UPDATE_SAMPLES 9600  /* ~200ms at 48kHz */
+#define NB_F0_UPDATE_SAMPLES 19200  /* ~200ms at 96kHz */
 #endif
 #ifndef NB_MU_DEFAULT
 #define NB_MU_DEFAULT     0.001f
@@ -2135,7 +2136,6 @@ static void run_measurement(alsa_ctx_t *a, int s_len, float noise_amp,
     float *sig_err = NULL;
     float *s_hat = NULL;
     cbuf_t u_buf = {0};
-    output_safety_t out_safety;
     measure_perf_t amb_perf_interval;
     measure_perf_t amb_perf_total;
     measure_perf_t meas_perf_interval;
@@ -2152,7 +2152,7 @@ static void run_measurement(alsa_ctx_t *a, int s_len, float noise_amp,
     measure_perf_reset(&amb_perf_total);
     measure_perf_reset(&meas_perf_interval);
     measure_perf_reset(&meas_perf_total);
-    output_safety_init(&out_safety, (float)rate);
+
 
     /* ========== Phase 1: Ambient capture — ref mic lead check ========== */
     long amb_total = (long)rate * AMBIENT_SECS;
@@ -2306,9 +2306,9 @@ static void run_measurement(alsa_ctx_t *a, int s_len, float noise_amp,
         /* Generate white noise output */
         for (int i = 0; i < (int)period; i++) {
             float u = white_noise(&rng_seed) * noise_amp;
-            u = output_safety_step(&out_safety, u);
-            out_buf[i * 2 + 0] = clip16(u);
-            out_buf[i * 2 + 1] = clip16(u);
+
+            out_buf[i * 2 + 0] = 0;           /* L: silent during measure */
+            out_buf[i * 2 + 1] = clip16(u);  /* R: ANC speaker */
         }
         double after_gen = get_time();
 
@@ -2334,7 +2334,7 @@ static void run_measurement(alsa_ctx_t *a, int s_len, float noise_amp,
 
         /* Per-sample LMS system identification */
         for (int i = 0; i < (int)period; i++) {
-            float u_sample   = to_f(out_buf[i * 2 + 0]);
+            float u_sample   = to_f(out_buf[i * 2 + 1]);  /* R: ANC speaker white noise */
             float d_measured = to_f(in_buf[i * 2 + ERR_CH]);
 
             cbuf_push(&u_buf, u_sample);
@@ -2513,9 +2513,7 @@ static void run_anc(alsa_ctx_t *a, mbfxlms_t *m, logger_t *l, int no_adapt,
     int16_t *in_buf  = (int16_t *)calloc(period * CHANNELS, sizeof(int16_t));
     int16_t *out_buf = (int16_t *)calloc(period * CHANNELS, sizeof(int16_t));
     band_ctl_t err_mon;
-    output_safety_t out_safety;
     band_ctl_init(&err_mon, band_lo_hz, band_hi_hz, (float)a->rate);
-    output_safety_init(&out_safety, (float)a->rate);
 
     /* Ensure clean start state */
     if (alsa_resync(a, out_buf, start_fill_periods) < 0) {
@@ -2597,7 +2595,6 @@ static void run_anc(alsa_ctx_t *a, mbfxlms_t *m, logger_t *l, int no_adapt,
             float e    = to_f(in_buf[i * 2 + ERR_CH]);
             float e_tone = band_ctl_step(&err_mon, e);
             float anti = mbfxlms_step_sample(m, ref, e);
-            anti = output_safety_step(&out_safety, anti);
 
             /* Soft limiter + clip count */
             int clipped = 0;
@@ -2828,18 +2825,19 @@ static void run_anc(alsa_ctx_t *a, mbfxlms_t *m, logger_t *l, int no_adapt,
 /* ===== Narrowband ANC Mode ===== */
 static void run_nb_anc(alsa_ctx_t *a, const float *sec_path, int sec_len,
                        logger_t *l, int n_harm, float nb_mu, float nb_leak,
-                       int start_fill_periods, int xrun_fill_periods)
+                       int start_fill_periods, int xrun_fill_periods,
+                       float test_tone_hz, float test_tone_amp)
 {
     snd_pcm_uframes_t period = a->period;
     double period_budget_ms = (double)period * 1000.0 / (double)a->rate;
 
     int16_t *in_buf  = (int16_t *)calloc(period * CHANNELS, sizeof(int16_t));
     int16_t *out_buf = (int16_t *)calloc(period * CHANNELS, sizeof(int16_t));
-    output_safety_t out_safety;
-    output_safety_init(&out_safety, (float)a->rate);
-
     nb_anc_t nb;
     nb_init(&nb, n_harm, nb_mu, nb_leak, sec_path, sec_len, (float)a->rate);
+    float test_tone_phase = 0.0f;
+    float test_tone_step  = (test_tone_hz > 0.0f)
+        ? (2.0f * (float)M_PI * test_tone_hz / (float)a->rate) : 0.0f;
 
     if (alsa_resync(a, out_buf, start_fill_periods) < 0) {
         free(in_buf); free(out_buf); return;
@@ -2906,15 +2904,24 @@ static void run_nb_anc(alsa_ctx_t *a, const float *sec_path, int sec_len,
 
             /* Narrowband anti-noise */
             float anti = nb_step(&nb, e);
-            anti = output_safety_step(&out_safety, anti);
 
             /* Soft limiter */
             int clipped = 0;
             if (anti >  OUTPUT_LIMIT) { anti =  OUTPUT_LIMIT; clipped = 1; }
             if (anti < -OUTPUT_LIMIT) { anti = -OUTPUT_LIMIT; clipped = 1; }
 
-            out_buf[i * 2 + 0] = clip16(anti);
+            /* R channel: ANC anti-noise */
             out_buf[i * 2 + 1] = clip16(anti);
+            /* L channel: test tone if enabled, else silent */
+            if (test_tone_step > 0.0f) {
+                float tone = test_tone_amp * sinf(test_tone_phase);
+                test_tone_phase += test_tone_step;
+                if (test_tone_phase > 2.0f * (float)M_PI)
+                    test_tone_phase -= 2.0f * (float)M_PI;
+                out_buf[i * 2 + 0] = clip16(tone);
+            } else {
+                out_buf[i * 2 + 0] = 0;
+            }
 
             logger_update(l, e, anti, e, clipped);
 
@@ -3310,6 +3317,8 @@ typedef struct {
     int   nb_harms;
     float nb_mu;
     float nb_leak;
+    float test_tone_hz;
+    float test_tone_amp;
 } tune_cfg_t;
 
 static void tune_cfg_init(tune_cfg_t *cfg)
@@ -3334,6 +3343,8 @@ static void tune_cfg_init(tune_cfg_t *cfg)
     cfg->nb_harms = 4;
     cfg->nb_mu    = NB_MU_DEFAULT;
     cfg->nb_leak  = NB_LEAK_DEFAULT;
+    cfg->test_tone_hz  = 0.0f;
+    cfg->test_tone_amp = 0.2f;
 }
 
 /* ===== main ===== */
@@ -3410,6 +3421,10 @@ int main(int argc, char **argv)
             cfg.nb_mu = strtof(arg + 8, NULL);
         } else if (strncmp(arg, "--nb-leak=", 10) == 0) {
             cfg.nb_leak = strtof(arg + 10, NULL);
+        } else if (strncmp(arg, "--test-tone-hz=", 15) == 0) {
+            cfg.test_tone_hz = strtof(arg + 15, NULL);
+        } else if (strncmp(arg, "--test-tone-amp=", 16) == 0) {
+            cfg.test_tone_amp = strtof(arg + 16, NULL);
         } else {
             usage(argv[0]);
             return 1;
@@ -3583,7 +3598,8 @@ int main(int argc, char **argv)
         }
         run_nb_anc(&alsa, tmp.s, tmp.s_len, &log,
                     cfg.nb_harms, cfg.nb_mu, cfg.nb_leak,
-                    cfg.start_fill_periods, cfg.xrun_fill_periods);
+                    cfg.start_fill_periods, cfg.xrun_fill_periods,
+                    cfg.test_tone_hz, cfg.test_tone_amp);
         fxlms_free(&tmp);
     }
     else {

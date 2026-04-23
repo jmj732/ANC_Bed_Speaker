@@ -221,7 +221,7 @@
 #define NB_F0_CONF_THR    0.75f
 #endif
 #ifndef NB_F0_UPDATE_SAMPLES
-#define NB_F0_UPDATE_SAMPLES 9600  /* ~200ms @ 48kHz */
+#define NB_F0_UPDATE_SAMPLES 19200  /* ~200ms @ 96kHz */
 #endif
 #ifndef NB_MU_DEFAULT
 #define NB_MU_DEFAULT     0.001f
