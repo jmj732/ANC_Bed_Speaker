@@ -422,6 +422,7 @@ typedef struct {
     /* 고조파 */
     int       n_harm;
     nb_harm_t harm[NB_MAX_HARM];
+    float     mu_scale[NB_MAX_HARM]; /* per-harmonic mu multiplier (h=0:1.0, h>=1:감쇠) */
 
     /* 이차 경로 (소유권 없는 참조 포인터) */
     const float *sec;
@@ -467,6 +468,13 @@ static void nb_init(nb_anc_t *nb, int n_harm, float mu, float leak,
     if (nb->lag_max >= NB_F0_BUF_LEN / 2)
         nb->lag_max = NB_F0_BUF_LEN / 2 - 1;
     nb->f0_next_update = NB_F0_UPDATE_SAMPLES;
+    /* per-harmonic mu scale: h=0 fundamental은 풀 학습률, 고조파는 점진적 감쇠 */
+    for (int h = 0; h < NB_MAX_HARM; h++) {
+        float s = 1.0f;
+        if (h == 1) s = 0.5f;
+        else if (h >= 2) s = 0.25f;
+        nb->mu_scale[h] = s;
+    }
 }
 
 static void nb_set_f0(nb_anc_t *nb, float f0_hz)
@@ -651,7 +659,7 @@ static float nb_step(nb_anc_t *nb, float err)
             float fx_cos = p->sx_mag * (cos_p * p->cos_sx - sin_p * p->sin_sx);
             float fx_sin = p->sx_mag * (sin_p * p->cos_sx + cos_p * p->sin_sx);
             float power  = p->sx_mag * p->sx_mag + NB_NLMS_EPS;
-            float mu_n   = nb->mu / power;
+            float mu_n   = (nb->mu * nb->mu_scale[h]) / power;
             p->w_c -= mu_n * err * fx_cos;
             p->w_s -= mu_n * err * fx_sin;
             p->w_c *= nb->leak;
