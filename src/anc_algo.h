@@ -580,6 +580,19 @@ static int nb_f0_update(nb_anc_t *nb)
     float new_f0 = nb_detect_f0(dec, dec_len, dec_lag_min, dec_lag_max, dec_fs, &conf);
     nb->f0_conf = conf;
 
+    /* 옥타브락/연속성 가드: 이전 f0이 있을 때, 새 검출이 ±30% 윈도우 밖이면
+       강한 conf(>=0.60)일 때만 채택. 옥타브(2x, 0.5x)는 이전 값으로 폴드. */
+    if (new_f0 > 0.0f && nb->f0_hz > 0.0f) {
+        float ratio = new_f0 / nb->f0_hz;
+        if (ratio > 1.7f && ratio < 2.3f)        new_f0 *= 0.5f;
+        else if (ratio > 0.43f && ratio < 0.59f) new_f0 *= 2.0f;
+        float dev = fabsf(new_f0 - nb->f0_hz) / nb->f0_hz;
+        if (dev > 0.30f && conf < 0.60f) {
+            /* 점프 거부 — 이전 f0 유지, candidate 갱신 안 함 */
+            return 0;
+        }
+    }
+
     if (new_f0 > 0.0f) {
         /* 홀드: 15% 이내 2회 연속 검출 후 적용 */
         if (nb->f0_candidate > 0.0f &&

@@ -8,6 +8,7 @@
 void run_nb_anc(alsa_ctx_t *a, const float *sec_path, int sec_len,
                 logger_t *l, int n_harm, float nb_mu, float nb_leak,
                 int start_fill_periods, int xrun_fill_periods,
-                const anc_runtime_cfg_t *cfg, int record_secs);
+                const anc_runtime_cfg_t *cfg, int record_secs,
+                float snore_f0, int snore_n_harm, const char *snore_file);
 
 #endif

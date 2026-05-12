@@ -5,7 +5,8 @@
 void run_nb_anc(alsa_ctx_t *a, const float *sec_path, int sec_len,
                 logger_t *l, int n_harm, float nb_mu, float nb_leak,
                 int start_fill_periods, int xrun_fill_periods,
-                const anc_runtime_cfg_t *cfg, int record_secs)
+                const anc_runtime_cfg_t *cfg, int record_secs,
+                float snore_f0, int snore_n_harm, const char *snore_file)
 {
     snd_pcm_uframes_t period = a->period;
     double period_budget_ms = (double)period * 1000.0 / (double)a->rate;
@@ -38,9 +39,33 @@ void run_nb_anc(alsa_ctx_t *a, const float *sec_path, int sec_len,
 
     double t_start = get_time();
 
-    /* Test tone on L channel (150 Hz, amplitude 0.3) */
+    /* Snore file playback (raw int16 mono, same rate as ALSA) */
+    FILE *f_snore = NULL;
+    if (snore_file) {
+        f_snore = fopen(snore_file, "rb");
+        if (!f_snore)
+            fprintf(stderr, "WARNING: cannot open snore file: %s\n", snore_file);
+        else
+            fprintf(stderr, "SNORE-FILE: %s\n", snore_file);
+    }
+
+    /* Noise source on L channel — snoring sim or fallback 150Hz tone */
+#define SNORE_MAX_HARM 8
+    float tone_amp = 0.3f;
+    int   snore_active = (snore_f0 > 0.0f);
+    int   snh = snore_active
+                ? (snore_n_harm > 0 ? (snore_n_harm < SNORE_MAX_HARM ? snore_n_harm : SNORE_MAX_HARM) : 1)
+                : 0;
+    float snore_phase[SNORE_MAX_HARM] = {0};
+    float snore_phase_inc[SNORE_MAX_HARM] = {0};
+    if (snore_active) {
+        for (int h = 0; h < snh; h++)
+            snore_phase_inc[h] = 2.0f * (float)M_PI * snore_f0 * (h + 1) / (float)a->rate;
+        fprintf(stderr, "SNORE-SIM: f0=%.1fHz  n_harm=%d  amp=%.2f\n",
+                snore_f0, snh, tone_amp);
+    }
+    /* fallback single tone (used when snore_f0==0) */
     float tone_hz    = 150.0f;
-    float tone_amp   = 0.3f;
     float tone_phase = 0.0f;
     float tone_phase_inc = 2.0f * (float)M_PI * tone_hz / (float)a->rate;
 
@@ -104,6 +129,9 @@ void run_nb_anc(alsa_ctx_t *a, const float *sec_path, int sec_len,
         if (f0_changed && nb.f0_hz > 0.0f)
             fprintf(stderr, "  f0=%.1fHz conf=%.2f\n", nb.f0_hz, nb.f0_conf);
 
+        /* 코골이 활성 여부: f0 검출 + conf 충분 */
+        int f0_active = (nb.f0_hz > 0.0f && nb.f0_conf >= NB_F0_CONF_THR);
+
         for (int i = 0; i < (int)period; i++) {
             float e   = to_f(in_buf[i * 2 + ERR_CH]);
 
@@ -114,16 +142,35 @@ void run_nb_anc(alsa_ctx_t *a, const float *sec_path, int sec_len,
             if (anti >  cfg->output_limit) { anti =  cfg->output_limit; clipped = 1; }
             if (anti < -cfg->output_limit) { anti = -cfg->output_limit; clipped = 1; }
 
-            float tone = tone_amp * sinf(tone_phase);
-            tone_phase += tone_phase_inc;
-            if (tone_phase > (float)M_PI) tone_phase -= 2.0f * (float)M_PI;
+            float noise_out;
+            if (f_snore) {
+                int16_t s16 = 0;
+                if (fread(&s16, sizeof(int16_t), 1, f_snore) < 1) {
+                    rewind(f_snore);  /* loop */
+                    fread(&s16, sizeof(int16_t), 1, f_snore);
+                }
+                noise_out = (float)s16 / 32768.0f;
+            } else if (snore_active) {
+                float s = 0.0f;
+                float amp_per = tone_amp / (float)snh;
+                for (int h = 0; h < snh; h++) {
+                    s += amp_per * sinf(snore_phase[h]);
+                    snore_phase[h] += snore_phase_inc[h];
+                    if (snore_phase[h] > (float)M_PI) snore_phase[h] -= 2.0f * (float)M_PI;
+                }
+                noise_out = s;
+            } else {
+                noise_out = tone_amp * sinf(tone_phase);
+                tone_phase += tone_phase_inc;
+                if (tone_phase > (float)M_PI) tone_phase -= 2.0f * (float)M_PI;
+            }
 
-            out_buf[i * 2 + 0] = clip16(tone);   /* L: 150Hz test tone */
-            out_buf[i * 2 + 1] = clip16(anti);   /* R: ANC anti-noise  */
+            out_buf[i * 2 + 0] = clip16(noise_out); /* L: noise source (snore sim or 150Hz) */
+            out_buf[i * 2 + 1] = clip16(anti);      /* R: ANC anti-noise  */
 
             logger_update(l, e, anti, e, clipped);
 
-            if (!bl_done) {
+            if (!bl_done && f0_active) {
                 bl_err_sum += (double)e * e;
                 bl_count++;
             }
@@ -144,7 +191,9 @@ void run_nb_anc(alsa_ctx_t *a, const float *sec_path, int sec_len,
 
             char status[32];
             if (l->frozen) snprintf(status, sizeof(status), "FROZEN");
+            else if (!bl_done && !f0_active) snprintf(status, sizeof(status), "SILENT");
             else if (!bl_done) snprintf(status, sizeof(status), "BL%d/%d", bl_sec + 1, cfg->baseline_secs);
+            else if (!f0_active) snprintf(status, sizeof(status), "SILENT");
             else if (nb.adapt) snprintf(status, sizeof(status), "adapt");
             else snprintf(status, sizeof(status), "fixed");
 
@@ -168,8 +217,8 @@ void run_nb_anc(alsa_ctx_t *a, const float *sec_path, int sec_len,
             fprintf(stderr, "\n");
 
             if (!bl_done) {
-                bl_sec++;
-                if (bl_sec >= cfg->baseline_secs) {
+                if (f0_active) bl_sec++;
+                if (bl_sec >= cfg->baseline_secs && bl_count > 0) {
                     baseline_err_rms = sqrt(bl_err_sum / bl_count);
                     l->baseline_err_rms = baseline_err_rms;
                     l->baseline_tone_rms = baseline_err_rms;
@@ -180,7 +229,7 @@ void run_nb_anc(alsa_ctx_t *a, const float *sec_path, int sec_len,
                 }
             }
 
-            if (bl_done && nb.adapt && tone_db > 0.0 && tone_db > best_db) {
+            if (bl_done && nb.adapt && f0_active && tone_db > 0.0 && tone_db > best_db) {
                 for (int h = 0; h < nb.n_harm; h++) {
                     best_wc[h] = nb.harm[h].w_c;
                     best_ws[h] = nb.harm[h].w_s;
@@ -190,7 +239,7 @@ void run_nb_anc(alsa_ctx_t *a, const float *sec_path, int sec_len,
                 best_valid = 1;
             }
 
-            if (bl_done && nb.adapt && !l->frozen) {
+            if (bl_done && nb.adapt && !l->frozen && f0_active) {
                 int diverged = 0;
                 if (baseline_err_rms > 0 &&
                     cur_err_rms > baseline_err_rms * cfg->err_diverge) {
@@ -245,4 +294,5 @@ void run_nb_anc(alsa_ctx_t *a, const float *sec_path, int sec_len,
     free(out_buf);
     if (f_ref) fclose(f_ref);
     if (f_err) fclose(f_err);
+    if (f_snore) fclose(f_snore);
 }

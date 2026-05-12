@@ -212,16 +212,16 @@
 #define NB_F0_BUF_LEN    2048
 #endif
 #ifndef NB_F0_MIN_HZ
-#define NB_F0_MIN_HZ     130.0f
+#define NB_F0_MIN_HZ     80.0f
 #endif
 #ifndef NB_F0_MAX_HZ
-#define NB_F0_MAX_HZ     200.0f
+#define NB_F0_MAX_HZ     250.0f
 #endif
 #ifndef NB_F0_CONF_THR
-#define NB_F0_CONF_THR    0.75f
+#define NB_F0_CONF_THR    0.35f
 #endif
 #ifndef NB_F0_UPDATE_SAMPLES
-#define NB_F0_UPDATE_SAMPLES 19200  /* ~200ms @ 96kHz */
+#define NB_F0_UPDATE_SAMPLES 4800   /* ~50ms @ 96kHz */
 #endif
 #ifndef NB_MU_DEFAULT
 #define NB_MU_DEFAULT     0.001f

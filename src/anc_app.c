@@ -36,6 +36,9 @@ typedef struct {
     float nb_mu;
     float nb_leak;
     int   record_secs;
+    float snore_f0;
+    int   snore_n_harm;
+    const char *snore_file;
 } tune_cfg_t;
 
 static void tune_cfg_init(tune_cfg_t *cfg)
@@ -61,6 +64,9 @@ static void tune_cfg_init(tune_cfg_t *cfg)
     cfg->nb_mu    = NB_MU_DEFAULT;
     cfg->nb_leak  = NB_LEAK_DEFAULT;
     cfg->record_secs = 0;
+    cfg->snore_f0     = 0.0f;
+    cfg->snore_n_harm = 4;
+    cfg->snore_file   = NULL;
 }
 
 static void usage(const char *prog)
@@ -138,6 +144,12 @@ int anc_app_main(int argc, char **argv, const anc_runtime_cfg_t *rt_cfg)
             cfg.nb_leak = strtof(arg + 10, NULL);
         } else if (strncmp(arg, "--record-secs=", 14) == 0) {
             cfg.record_secs = atoi(arg + 14);
+        } else if (strncmp(arg, "--snore-f0=", 11) == 0) {
+            cfg.snore_f0 = strtof(arg + 11, NULL);
+        } else if (strncmp(arg, "--snore-n-harm=", 15) == 0) {
+            cfg.snore_n_harm = atoi(arg + 15);
+        } else if (strncmp(arg, "--snore-file=", 13) == 0) {
+            cfg.snore_file = arg + 13;
         } else {
             usage(argv[0]);
             return 1;
@@ -305,7 +317,8 @@ int anc_app_main(int argc, char **argv, const anc_runtime_cfg_t *rt_cfg)
         run_nb_anc(&alsa, tmp.s, tmp.s_len, &log,
                     cfg.nb_harms, cfg.nb_mu, cfg.nb_leak,
                     cfg.start_fill_periods, cfg.xrun_fill_periods,
-                    rt_cfg, cfg.record_secs);
+                    rt_cfg, cfg.record_secs,
+                    cfg.snore_f0, cfg.snore_n_harm, cfg.snore_file);
         fxlms_free(&tmp);
     }
     else {
